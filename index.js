@@ -77,8 +77,8 @@ export default {
 			const proxyConfig = handleProxyConfig(PROXYIP);
 			proxyIP = proxyConfig.ip;
 			proxyPort = proxyConfig.port;
-			const url = new URL(request.url);
-                        const requestedPath = url.pathname.substring(1); // Remove leading slash
+			const url2 = new URL(request.url);
+                        const requestedPath = url2.pathname.substring(1); // Remove leading slash
 			const proxyIP = requestedPath.substring(0, requestedPath.length - 6);
 			console.log('proxyIP',proxyIP)// Extract all except the last 5 characters
 			if (socks5Address) {

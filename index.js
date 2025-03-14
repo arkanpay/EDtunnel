@@ -70,6 +70,13 @@ export default {
 			socks5Address = SOCKS5 || socks5Address;
 			socks5Relay = SOCKS5_RELAY || socks5Relay;
 
+			//Get proxyIP from path
+			// Check if the path starts with an IP address followed by ?ed=2048
+		            const ipPathMatch = requestedPath.match(/^(\d+\.\d+\.\d+\.\d+)(?:\?ed=2048)?$/);
+		            if (ipPathMatch) {
+		                proxyIP = ipPathMatch[1]; // Set proxyIP to the matched IP (e.g., 159.223.224.134)
+		                url.pathname = '/?ed=2048'; // Revert pathname to root for further processing
+		            }
 			// Handle proxy configuration
 			const proxyConfig = handleProxyConfig(PROXYIP);
 			proxyIP = proxyConfig.ip;

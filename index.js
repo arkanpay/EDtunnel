@@ -91,11 +91,6 @@ export default {
 			const userIDs = userID.includes(',') ? userID.split(',').map(id => id.trim()) : [userID];
 			const url = new URL(request.url);
 			const host = request.headers.get('Host');
-			/////
-			const requestedPath = url.pathname.substring(1); // Remove leading slash
-			const proxyIP = requestedPath.substring(0, requestedPath.length - 6);
-			console.log('proxyIP',proxyIP)// Extract all except the last 5 characters
-			////
 			const matchingUserID = userIDs.length === 1 ?
 				(requestedPath === userIDs[0] || 
 				 requestedPath === `sub/${userIDs[0]}` || 

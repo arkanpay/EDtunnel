@@ -3,7 +3,7 @@
 import { connect } from 'cloudflare:sockets';
 
 // ======================================
-// Configuration 
+// Configuration
 // ======================================
 
 /**
@@ -70,13 +70,11 @@ export default {
 			socks5Address = SOCKS5 || socks5Address;
 			socks5Relay = SOCKS5_RELAY || socks5Relay;
 
-			//Get proxyIP from path
-			// Check if the path starts with an IP address followed by ?ed=2048
-		            
 			// Handle proxy configuration
 			const proxyConfig = handleProxyConfig(PROXYIP);
 			proxyIP = proxyConfig.ip;
 			proxyPort = proxyConfig.port;
+
 			if (socks5Address) {
 				try {
 					const selectedSocks5 = selectRandomAddress(socks5Address);
@@ -91,6 +89,7 @@ export default {
 			const userIDs = userID.includes(',') ? userID.split(',').map(id => id.trim()) : [userID];
 			const url = new URL(request.url);
 			const host = request.headers.get('Host');
+			const requestedPath = url.pathname.substring(1); // Remove leading slash
 			const matchingUserID = userIDs.length === 1 ?
 				(requestedPath === userIDs[0] || 
 				 requestedPath === `sub/${userIDs[0]}` || 
@@ -499,48 +498,58 @@ async function ProtocolOverWSHandler(request) {
  * @param {Uint8Array} protocolResponseHeader - Protocol response header
  * @param {Function} log - Logging function
  */
-async function HandleTCPOutBound(remoteSocket, addressType, addressRemote, portRemote, rawClientData, webSocket, protocolResponseHeader, log,) {
-	async function connectAndWrite(address, port, socks = false) {
-		/** @type {import("@cloudflare/workers-types").Socket} */
-		let tcpSocket;
-		if (socks5Relay) {
-			tcpSocket = await socks5Connect(addressType, address, port, log)
-		} else {
-			tcpSocket = socks ? await socks5Connect(addressType, address, port, log)
-				: connect({
-					hostname: address,
-					port: port,
-				});
-		}
-		remoteSocket.value = tcpSocket;
-		log(`connected to ${address}:${port}`);
-		const writer = tcpSocket.writable.getWriter();
-		await writer.write(rawClientData); // first write, normal is tls client hello
-		writer.releaseLock();
-		return tcpSocket;
-	}
+async function HandleTCPOutBound(remoteSocket, addressType, addressRemote, portRemote, rawClientData, webSocket, protocolResponseHeader, log) {
+    /**
+     * Establishes a TCP connection to the specified address and port.
+     * @param {string} address - Address to connect to
+     * @param {number} port - Port to connect to
+     * @param {boolean} [socks=false] - Whether to use SOCKS5 proxy
+     * @returns {Promise<import("@cloudflare/workers-types").Socket>} Connected socket
+     */
+    async function connectAndWrite(address, port, socks = false) {
+        let tcpSocket;
+        if (socks5Relay) {
+            tcpSocket = await socks5Connect(addressType, address, port, log);
+        } else {
+            tcpSocket = socks ? await socks5Connect(addressType, address, port, log)
+                : connect({
+                    hostname: address,
+                    port: port,
+                });
+        }
+        remoteSocket.value = tcpSocket;
+        log(`connected to ${address}:${port}`);
+        const writer = tcpSocket.writable.getWriter();
+        await writer.write(rawClientData); // First write, typically the TLS client hello
+        writer.releaseLock();
+        return tcpSocket;
+    }
 
-	// if the cf connect tcp socket have no incoming data, we retry to redirect ip
-	async function retry() {
-		if (enableSocks) {
-			tcpSocket = await connectAndWrite(addressRemote, portRemote, true);
-		} else {
-			tcpSocket = await connectAndWrite(proxyIP || addressRemote, proxyPort || portRemote, false);
-		}
-		// no matter retry success or not, close websocket
-		tcpSocket.closed.catch(error => {
-			console.log('retry tcpSocket closed error', error);
-		}).finally(() => {
-			safeCloseWebSocket(webSocket);
-		})
-		RemoteSocketToWS(tcpSocket, webSocket, protocolResponseHeader, null, log);
-	}
+    /**
+     * Retry logic for failed connections or no incoming data.
+     * Attempts to reconnect via SOCKS5 or proxy IP.
+     */
+    async function retry() {
+        let tcpSocket;
+        if (enableSocks) {
+            tcpSocket = await connectAndWrite(addressRemote, portRemote, true);
+        } else {
+            tcpSocket = await connectAndWrite(proxyIP || addressRemote, proxyPort || portRemote, false);
+        }
+        // Handle socket closure and WebSocket cleanup
+        tcpSocket.closed.catch(error => {
+            console.log('retry tcpSocket closed error', error);
+        }).finally(() => {
+            safeCloseWebSocket(webSocket);
+        });
+        RemoteSocketToWS(tcpSocket, webSocket, protocolResponseHeader, null, log);
+    }
 
-	let tcpSocket = await connectAndWrite(addressRemote, portRemote);
+    // Initial connection attempt always uses the proxy IP and port
+    let tcpSocket = await connectAndWrite(proxyIP, proxyPort);
 
-	// when remoteSocket is ready, pass to websocket
-	// remote--> ws
-	RemoteSocketToWS(tcpSocket, webSocket, protocolResponseHeader, retry, log);
+    // Pass the remote socket to WebSocket with retry logic
+    RemoteSocketToWS(tcpSocket, webSocket, protocolResponseHeader, retry, log);
 }
 
 /**
